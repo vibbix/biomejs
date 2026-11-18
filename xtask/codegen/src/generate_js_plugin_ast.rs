@@ -702,6 +702,10 @@ const BASE_MEMBERS: &[&str] = &[
     "children",
     "token",
     "childrenWithTokens",
+    "descendants",
+    "walk",
+    "leadingTrivia",
+    "trailingTrivia",
 ];
 
 fn updater_name_for_field(field: &Field) -> String {

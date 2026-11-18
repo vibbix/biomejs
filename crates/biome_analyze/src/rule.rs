@@ -215,6 +215,8 @@ pub enum RuleSource<'a> {
     EslintAstro(&'a str),
     /// Rules from [Eslint Plugin Drizzle](https://orm.drizzle.team/docs/eslint-plugin)
     EslintDrizzle(&'a str),
+    /// Rules from [Convex ESLint Plugin](https://docs.convex.dev/linting/eslint)
+    EslintConvex(&'a str),
     /// Action for https://github.com/keithamus/sort-package-json
     SortPackageJson,
     /// Rules from [Sherif](https://github.com/QuiiBz/sherif)
@@ -296,6 +298,7 @@ impl<'a> std::fmt::Display for RuleSource<'a> {
             Self::EslintCss(_) => write!(f, "@eslint/css"),
             Self::EslintAstro(_) => write!(f, "eslint-plugin-astro"),
             Self::EslintDrizzle(_) => write!(f, "eslint-plugin-drizzle"),
+            Self::EslintConvex(_) => write!(f, "@convex-dev/eslint-plugin"),
             Self::SortPackageJson => write!(f, "sort-package-json"),
             Self::Sherif(_) => write!(f, "Sherif"),
             Self::EslintTypescriptSortKeys(_) => write!(f, "eslint-plugin-typescript-sort-keys"),
@@ -392,6 +395,7 @@ impl<'a> RuleSource<'a> {
             | Self::EslintYml(rule_name)
             | Self::EslintAstro(rule_name)
             | Self::EslintDrizzle(rule_name)
+            | Self::EslintConvex(rule_name)
             | Self::EslintTypescriptSortKeys(rule_name)
             | Self::EslintTanstackQuery(rule_name)
             | Self::StylelintScss(rule_name)
@@ -463,6 +467,7 @@ impl<'a> RuleSource<'a> {
             Self::EslintCss(_) => "css",
             Self::EslintAstro(_) => "astro",
             Self::EslintDrizzle(_) => "drizzle",
+            Self::EslintConvex(_) => "@convex-dev",
             Self::EslintTypescriptSortKeys(_) => "typescript-sort-keys",
             Self::EslintTanstackQuery(_) => "@tanstack/query",
             Self::StylelintScss(_) => "scss",
@@ -537,6 +542,7 @@ impl<'a> RuleSource<'a> {
             Self::EslintCss(rule_name) => format!("https://github.com/eslint/css/blob/main/docs/rules/{rule_name}.md"),
             Self::EslintAstro(rule_name) => format!("https://ota-meshi.github.io/eslint-plugin-astro/rules/{rule_name}"),
             Self::EslintDrizzle(rule_name) => format!("https://orm.drizzle.team/docs/eslint-plugin#{rule_name}"),
+            Self::EslintConvex(rule_name) => format!("https://docs.convex.dev/linting/overview#{rule_name}"),
             Self::SortPackageJson => "https://github.com/keithamus/sort-package-json".to_string(),
             Self::Sherif(rule_name) => format!("https://github.com/QuiiBz/sherif#{rule_name}"),
             Self::EslintTypescriptSortKeys(rule_name) => format!("https://github.com/infctr/eslint-plugin-typescript-sort-keys/blob/master/docs/rules/{rule_name}.md"),
@@ -674,6 +680,8 @@ impl RuleSourceKind {
 pub enum RuleDomain {
     /// Astro framework rules
     Astro,
+    /// Convex backend rules
+    Convex,
     /// Drizzle ORM rules
     Drizzle,
     /// React library rules
@@ -711,6 +719,7 @@ impl Display for RuleDomain {
         // use lower case naming, it needs to match the name of the configuration
         match self {
             Self::Astro => fmt.write_str("astro"),
+            Self::Convex => fmt.write_str("convex"),
             Self::Drizzle => fmt.write_str("drizzle"),
             Self::React => fmt.write_str("react"),
             Self::ReactNative => fmt.write_str("reactNative"),
@@ -750,6 +759,7 @@ impl RuleDomain {
     pub const fn manifest_dependencies(self) -> &'static [&'static (&'static str, &'static str)] {
         match self {
             Self::Astro => &[&("astro", ">=1.0.0")],
+            Self::Convex => &[&("convex", ">=1.0.0")],
             Self::React => &[&("react", ">=16.0.0")],
             Self::ReactNative => &[&("react-native", ">=0.60.0")],
             Self::Test => &[
@@ -786,6 +796,7 @@ impl RuleDomain {
     pub const fn globals(self) -> &'static [&'static str] {
         match self {
             Self::Astro => &[],
+            Self::Convex => &[],
             Self::React => &[],
             Self::ReactNative => &[],
             Self::Test => &[
@@ -830,6 +841,7 @@ impl RuleDomain {
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Astro => "astro",
+            Self::Convex => "convex",
             Self::React => "react",
             Self::ReactNative => "reactNative",
             Self::Test => "test",
@@ -864,6 +876,9 @@ impl RuleDomain {
             }
             Self::Solid => {
                 "Use this domain inside Solid projects. This domain enables rules that might conflict with the React domain."
+            }
+            Self::Convex => {
+                "Use this domain inside Convex projects. This domain enables rules that are specific to Convex."
             }
             Self::Next => "Use this domain inside Next.js projects.",
             Self::Playwright => {
@@ -904,6 +919,7 @@ impl FromStr for RuleDomain {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "astro" => Ok(Self::Astro),
+            "convex" => Ok(Self::Convex),
             "react" => Ok(Self::React),
             "reactNative" => Ok(Self::ReactNative),
             "test" => Ok(Self::Test),
@@ -1527,11 +1543,11 @@ pub trait Rule: RuleMeta + Sized {
         None
     }
 }
-fn build_top_level_suppression<L: Language>(
+pub(crate) fn build_top_level_suppression<L: Language>(
     root: L::Root,
     category: RuleCategory,
-    group_name: &'static str,
-    rule_name: &'static str,
+    group_name: &str,
+    rule_name: &str,
     suppression_action: &dyn SuppressionAction<Language = L>,
 ) -> Option<SuppressAction<L>> {
     if matches!(
@@ -1571,15 +1587,14 @@ fn build_top_level_suppression<L: Language>(
     None
 }
 
-/// Body of [Rule::inline_suppression], kept outside the trait so it is
-/// monomorphized once per language instead of once per rule: the rule only
-/// contributes its category, group name, and rule name.
-fn build_inline_suppression<L: Language>(
+/// Shared by [Rule::inline_suppression] and plugin signals, and kept outside
+/// the trait so it is monomorphized once per language instead of once per rule.
+pub(crate) fn build_inline_suppression<L: Language>(
     root: L::Root,
     text_range: &TextRange,
     category: RuleCategory,
-    group_name: &'static str,
-    rule_name: &'static str,
+    group_name: &str,
+    rule_name: &str,
     suppression_action: &dyn SuppressionAction<Language = L>,
     suppression_reason: Option<&str>,
 ) -> Option<SuppressAction<L>> {
